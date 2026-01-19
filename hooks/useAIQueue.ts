@@ -1,14 +1,16 @@
 
+
+
 import { useState, useEffect } from 'react';
 import { QueueItem, NoteType, Note, Problem, DetailLevel } from '../types';
 import * as GeminiService from '../services/geminiService';
 
 const LOADING_STEPS = [
-  "Analyzing Geometry...",
-  "Deriving Formulas...",
-  "Integrating Content...",
-  "Digitizing Diagrams...",
-  "Finalizing LaTeX..."
+  "Analyzing Content...",
+  "Structuring Narrative...",
+  "Integrating Knowledge...",
+  "Processing Visuals...",
+  "Finalizing Output..."
 ];
 
 export const useAIQueue = (
@@ -64,6 +66,7 @@ export const useAIQueue = (
                 chapterId: finalChapterId,
                 createdAt: Date.now(),
                 type: NoteType.CONCEPT,
+                domain: task.sourceNote.domain,
                 content: summarizedContent,
                 images: task.sourceNote.images || []
              };
@@ -130,15 +133,6 @@ export const useAIQueue = (
                     classProblems: finalProblems,
                     visuals: finalVisuals
                 };
-
-                // NOTE: We trigger content update.
-                // For images, we need to append the new image to the note's image array separately.
-                // However, since we don't have a direct 'updateNoteImages' action exposed here cleanly without refactoring contexts,
-                // and useNotebook only exposes updateNoteContent (which updates content JSON),
-                // we will rely on the fact that for now the visual content is enough.
-                // Ideally, we'd update the images array too. 
-                // Let's assume we update the note object in place via updateNoteContent if we pass extra props, 
-                // as updated in useNotebook hook in previous steps (it merges payload).
                 
                 const updatePayload: any = {
                     content: mergedContent,
@@ -155,8 +149,31 @@ export const useAIQueue = (
             
             // --- EXECUTE NEW NOTE ---
             else {
+                // Import Mode Logic (Text Paste)
+                if (task.mode === 'IMPORT') {
+                    const contentPayload = await GeminiService.parseRawTextToNote(task.text, task.domain);
+                    
+                    if (task.customSubtopic) {
+                        contentPayload.title = task.customSubtopic;
+                        contentPayload.subtopic = "Imported Note";
+                    }
+
+                    const newNote: Note = {
+                        id: task.id,
+                        subjectId: task.subjectId,
+                        chapterId: finalChapterId,
+                        createdAt: Date.now(),
+                        type: NoteType.CONCEPT,
+                        domain: task.domain,
+                        content: contentPayload,
+                        images: []
+                    };
+                    addNote(newNote);
+                    setSelectedNote(newNote);
+                }
+                
                 // Problem Mode Logic
-                if (task.mode === 'PROBLEM') {
+                else if (task.mode === 'PROBLEM') {
                     const problems = await GeminiService.extractProblemsOnly(task.text, task.fileBase64);
                     
                     let contentPayload;
@@ -164,7 +181,8 @@ export const useAIQueue = (
                          contentPayload = await GeminiService.generateNoteFromInput(
                             task.text,
                             task.fileBase64,
-                            DetailLevel.EXPANDED
+                            DetailLevel.EXPANDED,
+                            task.domain
                         );
                         contentPayload.classProblems = problems;
                     } else {
@@ -186,6 +204,7 @@ export const useAIQueue = (
                         chapterId: finalChapterId,
                         createdAt: Date.now(),
                         type: task.includeAddOn ? NoteType.MIXED : NoteType.EXAMPLE,
+                        domain: task.domain,
                         content: contentPayload,
                         images: task.fileBase64 ? [task.fileBase64] : []
                     };
@@ -198,7 +217,8 @@ export const useAIQueue = (
                     const content = await GeminiService.generateNoteFromInput(
                         task.text,
                         task.fileBase64,
-                        DetailLevel.EXPANDED
+                        DetailLevel.EXPANDED,
+                        task.domain
                     );
                     
                     // Override Title if Custom Subtopic is provided
@@ -218,6 +238,7 @@ export const useAIQueue = (
                         chapterId: finalChapterId,
                         createdAt: Date.now(),
                         type: task.includeAddOn ? NoteType.MIXED : NoteType.CONCEPT,
+                        domain: task.domain,
                         content,
                         images: task.fileBase64 ? [task.fileBase64] : []
                     };
@@ -229,7 +250,8 @@ export const useAIQueue = (
 
       } catch (error) {
         console.error("Failed to process task", error);
-        alert(`Failed to generate note for task created at ${new Date(task.createdAt).toLocaleTimeString()}`);
+        // Show specific error if available (e.g. Missing API Key)
+        alert(`Failed to generate note: ${error instanceof Error ? error.message : "Unknown error"}`);
       } finally {
         setCurrentTask(null);
         setBatchCompletedCount(prev => prev + 1);

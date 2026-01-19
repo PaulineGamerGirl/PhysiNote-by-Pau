@@ -1,8 +1,21 @@
 
 import { GoogleGenAI, Schema, Type, FunctionDeclaration } from "@google/genai";
-import { NoteContent, NoteType, PracticeProblemSet, DetailLevel, Problem } from "../types";
+import { NoteContent, NoteType, PracticeProblemSet, DetailLevel, Problem, NoteDomain } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Safety check for process.env to prevent crashes in non-Node environments
+// We check GEMINI_API_KEY first as requested, then fall back to API_KEY
+const apiKey = (typeof process !== 'undefined' && process.env) 
+  ? (process.env.GEMINI_API_KEY || process.env.API_KEY) 
+  : undefined;
+
+// Initialize with a fallback to prevent immediate crash on module load; specific errors are thrown during function calls.
+const ai = new GoogleGenAI({ apiKey: apiKey || "MISSING_KEY" });
+
+const checkApiKey = () => {
+  if (!apiKey) {
+    throw new Error("API Key is missing. Please add 'GEMINI_API_KEY' to your environment variables.");
+  }
+};
 
 // --- Schemas ---
 
@@ -43,11 +56,11 @@ const NoteResponseSchema: Schema = {
   properties: {
     title: { type: Type.STRING },
     subtopic: { type: Type.STRING },
-    analogy: { type: Type.STRING, description: "1-2 lines connecting abstract physics to reality" },
-    conceptualLogic: { type: Type.STRING, description: "The 'why' before the 'how'" },
+    analogy: { type: Type.STRING, description: "1-2 lines connecting abstract concepts to reality or modern day" },
+    conceptualLogic: { type: Type.STRING, description: "The 'why' before the 'how', or the Historical Context/Theme" },
     condensedReview: { type: Type.ARRAY, items: { type: Type.STRING }, description: "High-yield bullet points for cramming" },
-    extendedExplanation: { type: Type.STRING, description: "Deep dive derivation and context in Markdown/LaTeX" },
-    classProblems: { type: Type.ARRAY, items: ProblemSchema },
+    extendedExplanation: { type: Type.STRING, description: "Deep dive explanation/narrative in Markdown/LaTeX" },
+    classProblems: { type: Type.ARRAY, items: ProblemSchema, description: "For STEM, list problems. For HUMANITIES, return empty array." },
     visuals: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of SVG strings. If input has a graph/diagram, generate a clean minimalist SVG (<svg>...</svg>). If no visual, return empty array." }
   },
   required: ["title", "subtopic", "analogy", "conceptualLogic", "condensedReview", "extendedExplanation", "classProblems", "visuals"]
@@ -91,8 +104,8 @@ const SyllabusSchema: Schema = {
         items: { 
             type: Type.OBJECT,
             properties: {
-                title: { type: Type.STRING, description: "Chapter Title (e.g., 'Kinematics')" },
-                subtopics: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of explicit subtopics (e.g., 'Velocity', 'Acceleration')" }
+                title: { type: Type.STRING, description: "Chapter Title (e.g., 'Kinematics' or 'The Renaissance')" },
+                subtopics: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of explicit subtopics" }
             },
             required: ["title", "subtopics"]
         },
@@ -112,18 +125,19 @@ const updateNoteTool: FunctionDeclaration = {
 // --- API Calls ---
 
 export const summarizeNoteContent = async (originalNote: NoteContent): Promise<NoteContent> => {
+    checkApiKey();
     const prompt = `
-      Task: Create a "Summarized/Cheat Sheet" version of this physics note.
+      Task: Create a "Summarized/Cheat Sheet" version of this note.
       
       Input Content:
       ${JSON.stringify(originalNote)}
   
       Rules for Summarization:
       1. Title & Subtopic: Keep identical.
-      2. Conceptual Logic: Compress to 1-2 lines maximum. Just the core intuition.
+      2. Conceptual Logic: Compress to 1-2 lines maximum. Just the core intuition or theme.
       3. Analogy: Keep if short, otherwise remove (N/A).
-      4. Extended Explanation: EMPTY string. Do not include long derivations.
-      5. Condensed Review: Keep only the most critical formulas/definitions.
+      4. Extended Explanation: EMPTY string.
+      5. Condensed Review: Keep only the most critical definitions/dates/formulas.
       6. Problems: 
          - Keep the Question.
          - Keep the Math Solution (LaTeX).
@@ -151,6 +165,7 @@ export const analyzeContinuation = async (
   imageBase64: string | undefined,
   previousNoteContent: NoteContent
 ): Promise<{ isContinuation: boolean; reasoning?: string }> => {
+  checkApiKey();
   const prompt = `
     Compare the New Input with the Previous Note Content.
     
@@ -164,7 +179,7 @@ export const analyzeContinuation = async (
     
     Return TRUE if:
     - It is the next slide of the same specific lecture topic.
-    - It is a continuation of a math derivation started in the previous note.
+    - It is a continuation of a math derivation or historical narrative started in the previous note.
     - It adds more details/diagrams to the *exact same* subtopic.
     
     Return FALSE if:
@@ -196,6 +211,7 @@ export const parseSyllabusToChapters = async (
     textInput: string,
     imageBase64: string | undefined
 ): Promise<{ title: string; subtopics: string[] }[]> => {
+    checkApiKey();
     const prompt = `
       Analyze the provided syllabus or course outline.
       Extract a structured list of the main Chapters/Modules AND their explicit subtopics.
@@ -229,8 +245,9 @@ export const extractProblemsOnly = async (
   textInput: string,
   imageBase64: string | undefined
 ): Promise<Problem[]> => {
+  checkApiKey();
   const prompt = `
-    Extract ONLY the physics problems from this input.
+    Extract ONLY the physics/math problems from this input.
     Do NOT generate analogies, conceptual logic, or summaries.
     Focus strictly on parsing the Question, Given values, Formulas needed, and the Step-by-Step Solution.
     Format math with LaTeX.
@@ -256,14 +273,52 @@ export const extractProblemsOnly = async (
   return result.problems || [];
 };
 
+export const parseRawTextToNote = async (
+    rawText: string,
+    domain: NoteDomain
+): Promise<NoteContent> => {
+    checkApiKey();
+    const prompt = `
+      Task: Parse and Format the provided raw text into the app's note structure.
+      
+      RAW TEXT INPUT:
+      ${rawText}
+      
+      Instruction:
+      1. PRESERVE CONTENT: Do NOT summarize, delete, or rewrite the core content if it is already detailed. The user's text is the source of truth for the 'extendedExplanation'.
+      2. FORMATTING: Apply Markdown to the 'extendedExplanation' (headers, bolding) to make it readable.
+      3. FILL GAPS: 
+         - If an 'Analogy' is missing in the text, generate a relevant one.
+         - If 'Conceptual Logic' is missing, generate one based on the text.
+         - If 'classProblems' are found in the text, extract them into the array. If not, return [].
+      4. DOMAIN: Treat this as ${domain} content.
+      
+      Output valid JSON matching the schema.
+    `;
+
+    const response = await ai.models.generateContent({
+        model: "gemini-3-pro-preview",
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: NoteResponseSchema,
+        }
+    });
+
+    if (!response.text) throw new Error("No response from AI");
+    return JSON.parse(response.text) as NoteContent;
+};
+
 export const generateNoteFromInput = async (
   textInput: string,
   imageBase64: string | undefined,
   detailLevel: DetailLevel,
+  domain: NoteDomain = NoteDomain.STEM,
   previousNoteContext?: string,
   excludeProblems: boolean = false,
   excludeConcepts: boolean = false
 ): Promise<NoteContent> => {
+  checkApiKey();
   
   const detailInstruction = detailLevel === DetailLevel.STRICT 
     ? "MODE: STRICT SCRIBE. \nConstraint: Do NOT add external knowledge. Polished version of input only."
@@ -281,26 +336,53 @@ export const generateNoteFromInput = async (
       exclusionInstruction += "CRITICAL: Do NOT generate 'analogy', 'conceptualLogic' or 'extendedExplanation'. Fill them with 'N/A' or simple placeholders. Focus ONLY on the problems.\n";
   }
 
+  // --- DYNAMIC SYSTEM INSTRUCTIONS BASED ON DOMAIN ---
+  let domainInstruction = "";
+  let systemPersona = "";
+
+  if (domain === NoteDomain.HUMANITIES) {
+      systemPersona = "You are an expert Historian, Storyteller, and General Education Tutor.";
+      domainInstruction = `
+        DOMAIN: HUMANITIES / HISTORY / GENERAL EDUCATION.
+        
+        Style Rules:
+        1. NARRATIVE FLOW: Write the 'extendedExplanation' as a compelling story. Connect events chronologically.
+        2. BOLDING: Bold **key dates**, **names**, and **critical terms**.
+        3. ANALOGIES: Use 'analogy' to compare historical/abstract events to modern day situations (e.g. "The Roman Senate was like a modern Board of Directors...").
+        4. CONCEPTUAL LOGIC: Use this field for "Historical Context" or "The Main Theme".
+        5. NO MATH: Set 'classProblems' to an empty array []. Do NOT try to force formulas.
+        6. VISUALS: If there is a timeline or map in the input, try to create a simple SVG representation.
+      `;
+  } else {
+      systemPersona = "You are a specialized Physics & Math Assistant.";
+      domainInstruction = `
+        DOMAIN: STEM / PHYSICS / MATH.
+        
+        Style Rules:
+        1. FORMAL & PRECISE: Use standard scientific terminology.
+        2. LATEX: Use LaTeX for all math ($...$ or $$...$$).
+        3. PROBLEMS: Extract 'classProblems' if found. Check unit consistency.
+        4. DERIVATIONS: Show step-by-step logic in 'extendedExplanation'.
+      `;
+  }
+
   const prompt = `
-    You are an expert Physics Assistant. 
     Analyze the provided input (slide, blackboard, handwritten notes).
     
+    ${domainInstruction}
     ${detailInstruction}
     ${contextInstruction}
     ${exclusionInstruction}
     
-    Requirements:
+    Output Requirements:
     1. Identify Main Lesson/Subtopic.
-    2. Real World Analogy (1-2 lines).
-    3. Conceptual Logic (The 'Why').
+    2. Analogy (1-2 lines).
+    3. Conceptual Logic (The 'Why' or Context).
     4. Core Content:
        - Condensed Review: Key bullets.
-       - Extended Explanation: Markdown/LaTeX text.
-    5. Extract 'classProblems' if found (unless instructed otherwise).
-       - Analyze 'Given', 'Formulas', 'Tricks', solutions.
-       - Check UNIT CONSISTENCY (set unitStatus.safe).
-       - USE LATEX for math ($...$ or $$...$$).
-    6. GRAPH/DIAGRAM DIGITIZER: If input has a diagram, generate semantic SVG code in 'visuals' array.
+       - Extended Explanation: Markdown text (Narrative for Humanities, Derivations for STEM).
+    5. classProblems: ${domain === NoteDomain.HUMANITIES ? "MUST BE EMPTY ARRAY []" : "Extract if found"}.
+    6. Visuals: SVG code if diagrams/timelines exist.
   `;
 
   const parts: any[] = [{ text: prompt }];
@@ -320,8 +402,8 @@ export const generateNoteFromInput = async (
     config: {
       responseMimeType: "application/json",
       responseSchema: NoteResponseSchema,
-      systemInstruction: "You are a specialized Physics Assistant. Output valid JSON. Ensure LaTeX backslashes are escaped properly for JSON string format. For SVGs, ensure they are self-contained.",
-      thinkingConfig: { thinkingBudget: 2048 } // Enable thinking for better derivations
+      systemInstruction: `${systemPersona} Output valid JSON. Ensure strings are properly escaped.`,
+      thinkingConfig: { thinkingBudget: 2048 }
     }
   });
 
@@ -335,8 +417,9 @@ export const integrateNoteContent = async (
   newInputText: string,
   newInputImage: string | undefined
 ): Promise<NoteContent> => {
+  checkApiKey();
   const prompt = `
-    You are a Senior Technical Editor and Physics Tutor.
+    You are a Senior Technical Editor.
     
     Task: INTEGRATE new content into an existing note to create a single, cohesive document.
     
@@ -351,8 +434,8 @@ export const integrateNoteContent = async (
        - Do NOT just append the new text to the end.
        - REWRITE the content to weave the new information in naturally.
        - If the new input clarifies a concept mentioned earlier, update the earlier section.
-       - If it adds a new step to a derivation, insert it in the correct logical order.
-       - Ensure the tone is consistent.
+       - If it adds a new step to a derivation or narrative, insert it in the correct logical order.
+       - Maintain the original domain style (Narrative for History, Formal for STEM).
        
     2. PRESERVATION:
        - Do NOT change the 'title' or 'subtopic' unless the new input explicitly says "Change topic to X". The user may have manually set these.
@@ -398,17 +481,24 @@ export const generatePracticeProblems = async (
   topic: string,
   context: string
 ): Promise<PracticeProblemSet> => {
+  checkApiKey();
   const prompt = `
-    Generate 3 practice physics problems for the topic: "${topic}".
+    Generate 3 practice questions for the topic: "${topic}".
     Context from notes: ${context}
+    
+    If the context implies a NON-MATH subject (History, Ethics, etc.):
+    - Generate "Review Questions" instead of math problems.
+    - Set 'solutionMath' to empty strings.
+    - Put the answer explanations in 'solutionSteps'.
+    - Use 'Given' field for "Key Definitions" needed.
 
+    If the context implies PHYSICS/MATH:
     1. Easy: Mechanical, shows steps immediately.
     2. Medium: Exam-standard difficulty.
-    3. Hard: Cumulative/Integrative (combines current topic with previous physics concepts).
+    3. Hard: Cumulative/Integrative.
+    - Use LaTeX for math.
 
-    Include specific 'Tricks' for solving them effectively.
-    Analyze unit consistency for each problem.
-    Use LaTeX for math.
+    Include specific 'Tricks' for remembering the answer/concept.
   `;
 
   const response = await ai.models.generateContent({
@@ -427,9 +517,11 @@ export const generatePracticeProblems = async (
 export const generateSummaryTable = async (
   notesContent: string[]
 ): Promise<string> => {
+  checkApiKey();
   const prompt = `
     Create a Master Summary Table for this chapter based on the following notes content.
-    Include columns for: Concept/Quantity, Symbol, Formula, SI Unit, and Key Insight.
+    If STEM: Include columns for Concept, Symbol, Formula, SI Unit, Insight.
+    If HUMANITIES: Include columns for Event/Concept, Date/Period, Key Figures, Significance.
     Output in Markdown Table format.
     
     Notes Content:
@@ -447,14 +539,18 @@ export const generateSummaryTable = async (
 export const generateFormulaCheatSheet = async (
   notesContent: string[]
 ): Promise<string> => {
+  checkApiKey();
   const prompt = `
-    Create a Formula Cheat Sheet for the following physics notes.
-    Group formulas by sub-topic.
-    For each formula, list:
-    - The LaTeX equation
-    - Variable definitions
-    - SI Units
-    - Common constants used
+    Create a Cheat Sheet for the following notes.
+    
+    If the content looks like Physics/Math:
+    - Group formulas by sub-topic.
+    - List LaTeX equation, variable definitions, units.
+    
+    If the content looks like History/General:
+    - Create a "Timeline & Key Terms" sheet.
+    - Group by Era/Topic.
+    - List Term, Definition, and Why it matters.
     
     Format nicely in Markdown with headers.
     
@@ -475,22 +571,22 @@ export const sendChatMessage = async (
   newMessage: string,
   currentNoteContext: string
 ): Promise<{ text: string; updatedNote?: NoteContent }> => {
+  checkApiKey();
   
   const systemContext = `
-    You are a Physics AI Assistant embedded in a note-taking app.
+    You are an AI Assistant embedded in a note-taking app.
     The user is currently looking at a note with the following JSON content:
     ${currentNoteContext}
     
     Your Capabilities:
     1. Answer questions about the note (clarifications, definitions, etc.).
-    2. EDIT the note if requested (e.g., "Remove the second problem", "Rewrite the analogy", "Add a section about torque").
+    2. EDIT the note if requested.
     
     Rules for Editing:
     - If the user asks to change the note, you MUST call the 'update_note' tool.
-    - When calling 'update_note', you must return the COMPLETE NoteContent object, merging the user's changes into the existing content.
-    - Do not lose existing data (like diagrams or problems) unless explicitly asked to remove them.
-    - Ensure the 'type' of the note remains consistent unless asked to change.
-    - Use LaTeX for math.
+    - Return the COMPLETE NoteContent object.
+    - Do not lose existing data (like diagrams or problems) unless explicitly asked.
+    - Adapt your tone to the subject matter (Formal for Science, Narrative for Humanities).
   `;
 
   const chat = ai.chats.create({
@@ -524,19 +620,19 @@ export const transformSelectedText = async (
     selectedText: string, 
     instruction: string
 ): Promise<string> => {
+    checkApiKey();
     const prompt = `
-      You are a specialized Physics Editor.
+      You are a specialized Editor.
       Task: Transform the selected text based on the user's instruction.
       
       User Instruction: "${instruction}"
       Selected Text: "${selectedText}"
       
       Rules:
-      1. ONLY return the transformed text. Do not add conversational filler ("Here is the corrected text...").
-      2. Maintain the physics context and accuracy.
-      3. If the user asks to "fix grammar", make it professional and academic.
-      4. If the user asks to "expand", add relevant physics details but keep it concise.
-      5. Use LaTeX ($...$) for any math variables.
+      1. ONLY return the transformed text.
+      2. Maintain the academic context.
+      3. If the instruction implies a narrative change ("make it a story"), use emotive language.
+      4. If the instruction implies formalizing ("make it scientific"), use precise terminology.
     `;
 
     const response = await ai.models.generateContent({
@@ -546,4 +642,3 @@ export const transformSelectedText = async (
 
     return response.text || selectedText;
 };
-    

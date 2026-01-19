@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Camera, ArrowRight, Check, BookOpen, Calculator, Plus, ChevronDown, FolderOpen, FilePlus, GitMerge, FileText, BrainCircuit, UploadCloud, Search } from 'lucide-react';
-import { NoteType, DetailLevel, Note, Chapter } from '../../types';
+import { X, Camera, ArrowRight, Check, BookOpen, Calculator, Plus, ChevronDown, FolderOpen, FilePlus, GitMerge, FileText, BrainCircuit, UploadCloud, Search, Feather, Atom, Clipboard, Scissors } from 'lucide-react';
+import { NoteType, DetailLevel, Note, Chapter, NoteDomain } from '../../types';
 
 interface CreateNoteModalProps {
   isOpen: boolean;
@@ -31,13 +31,13 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
   const [targetChapterId, setTargetChapterId] = useState<string>(selectedChapterId || (chapters[0]?.id) || '');
   
   // Subtopic / Placement Logic
-  // If user selects existing note ID -> MERGE
-  // If user types new string -> NEW
-  // If empty -> AUTO
   const [subtopicInput, setSubtopicInput] = useState('');
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null); // If an existing note is selected from dropdown
   
-  const [mode, setMode] = useState<'CONCEPT' | 'PROBLEM' | 'BLANK'>('CONCEPT');
+  // New: Domain Selection
+  const [domain, setDomain] = useState<NoteDomain>(NoteDomain.STEM);
+
+  const [mode, setMode] = useState<'CONCEPT' | 'PROBLEM' | 'BLANK' | 'IMPORT'>('CONCEPT');
   const [includeAddOn, setIncludeAddOn] = useState(false); // If Concept: "Add Practice?". If Problem: "Add Concepts?"
   
   // Upload Data
@@ -63,6 +63,7 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
           setSubtopicInput('');
           setSelectedNoteId(null);
           setMode('CONCEPT');
+          setDomain(NoteDomain.STEM);
           setIncludeAddOn(false);
           setInput('');
           setFile(null);
@@ -148,6 +149,7 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
          customSubtopic: subtopicInput.trim(),
 
          mode: 'BLANK', // Use Blank mode logic to bypass AI
+         domain,
          includeAddOn: false,
          createdAt: Date.now()
      };
@@ -192,6 +194,7 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
          customSubtopic: finalCustomSubtopic,
 
          mode,
+         domain,
          includeAddOn,
          createdAt: Date.now()
      };
@@ -223,15 +226,35 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
 
          {step === 1 && (
              <div className="animate-fade-in space-y-6 mt-4">
-                 <div className="mb-4">
-                    <h3 className="text-2xl font-extrabold text-slate-900 tracking-tight">New Entry</h3>
-                    <p className="text-sm text-slate-500 font-medium">Add content to your notebook.</p>
-                </div>
+                 
+                 {/* Top Header & Domain Toggle */}
+                 <div className="flex justify-between items-start mb-4">
+                     <div>
+                        <h3 className="text-2xl font-extrabold text-slate-900 tracking-tight">New Entry</h3>
+                        <p className="text-sm text-slate-500 font-medium">Add content to your notebook.</p>
+                     </div>
+                     
+                     <div className="flex bg-slate-100 p-1 rounded-xl">
+                        <button 
+                            onClick={() => setDomain(NoteDomain.STEM)}
+                            className={`p-2 rounded-lg transition-all flex items-center gap-2 ${domain === NoteDomain.STEM ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            title="Math/Science Mode"
+                        >
+                            <Atom className="w-5 h-5" />
+                        </button>
+                        <button 
+                            onClick={() => setDomain(NoteDomain.HUMANITIES)}
+                            className={`p-2 rounded-lg transition-all flex items-center gap-2 ${domain === NoteDomain.HUMANITIES ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            title="Humanities/General Mode"
+                        >
+                            <Feather className="w-5 h-5" />
+                        </button>
+                     </div>
+                 </div>
 
-                {/* 1. Chapter Selector (Secondary) */}
+                {/* 1. Chapter Selector */}
                 <div className="relative" ref={chapterDropdownRef}>
                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Target Chapter</label>
-                     
                      <button 
                         onClick={() => setIsChapterDropdownOpen(!isChapterDropdownOpen)}
                         className={`w-full text-left bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-xl p-3 outline-none flex items-center gap-3 transition-all ${isChapterDropdownOpen ? 'ring-2 ring-blue-500/20 bg-white' : 'hover:bg-slate-100'}`}
@@ -240,7 +263,6 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
                         <span className="truncate flex-1 text-sm">{getSelectedChapterLabel()}</span>
                         <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isChapterDropdownOpen ? 'rotate-180' : ''}`} />
                      </button>
-
                      {isChapterDropdownOpen && (
                          <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 p-2 z-30 animate-slide-down max-h-[200px] overflow-y-auto">
                              {chapters.map(c => (
@@ -258,16 +280,15 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
                      )}
                 </div>
 
-                {/* 2. Subtopic Selector (Primary Destination) */}
+                {/* 2. Subtopic Selector */}
                 <div className="relative" ref={topicDropdownRef}>
                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Subtopic / Topic</label>
-                     
                      <div className="relative">
                         <input 
                             value={subtopicInput}
                             onChange={(e) => {
                                 setSubtopicInput(e.target.value);
-                                setSelectedNoteId(null); // Clear manual selection if typing
+                                setSelectedNoteId(null);
                                 setIsTopicDropdownOpen(true);
                             }}
                             onFocus={() => setIsTopicDropdownOpen(true)}
@@ -313,22 +334,7 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
                                     </div>
                                 </button>
                             )}
-
-                            {/* Option: Auto Detect */}
-                            {!subtopicInput && (
-                                <button 
-                                    onClick={() => { setSubtopicInput(''); setSelectedNoteId(null); setIsTopicDropdownOpen(false); }}
-                                    className="w-full text-left p-3 rounded-xl hover:bg-blue-50 text-blue-700 font-bold text-sm flex items-center gap-3 transition-colors mb-1"
-                                >
-                                    <div className="bg-blue-100 p-1.5 rounded-lg"><BrainCircuit className="w-4 h-4" /></div>
-                                    <div>
-                                        <span>Smart Auto-Detect</span>
-                                        <p className="text-[10px] font-medium text-blue-600/70">Let AI decide based on content</p>
-                                    </div>
-                                    <Check className="w-4 h-4 ml-auto" />
-                                </button>
-                            )}
-
+                            
                             {/* Existing Notes */}
                             {chapterNotes.length > 0 && <div className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-t border-slate-50 mt-1">Existing Subtopics</div>}
                             
@@ -360,7 +366,9 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
                              <div className={`p-3 rounded-full ${mode === 'CONCEPT' ? 'bg-pink-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
                                  <BookOpen className="w-6 h-6" />
                              </div>
-                             <span className={`font-bold text-sm ${mode === 'CONCEPT' ? 'text-pink-900' : 'text-slate-600'}`}>AI Concept</span>
+                             <span className={`font-bold text-sm ${mode === 'CONCEPT' ? 'text-pink-900' : 'text-slate-600'}`}>
+                                {domain === NoteDomain.STEM ? 'Physics Concept' : 'Narrative Notes'}
+                             </span>
                         </button>
                         
                         <button 
@@ -370,27 +378,40 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
                              <div className={`p-3 rounded-full ${mode === 'PROBLEM' ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
                                  <Calculator className="w-6 h-6" />
                              </div>
-                             <span className={`font-bold text-sm ${mode === 'PROBLEM' ? 'text-indigo-900' : 'text-slate-600'}`}>AI Problem</span>
+                             <span className={`font-bold text-sm ${mode === 'PROBLEM' ? 'text-indigo-900' : 'text-slate-600'}`}>
+                                 {domain === NoteDomain.STEM ? 'Problem Set' : 'Key Events'}
+                             </span>
                         </button>
                     </div>
 
-                    <button
-                        onClick={() => {
-                            setMode('BLANK');
-                        }} 
-                        className={`w-full mt-4 p-4 rounded-3xl border-2 flex items-center justify-between gap-3 text-left hover:shadow-md transition-all ${mode === 'BLANK' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-100 bg-white hover:border-emerald-200'}`}
-                    >
-                         <div className="flex items-center gap-3">
-                             <div className={`p-2 rounded-xl ${mode === 'BLANK' ? 'bg-emerald-500 text-white' : 'bg-emerald-100 text-emerald-600'}`}>
-                                 <FilePlus className="w-5 h-5" />
-                             </div>
-                             <span className={`font-bold text-sm ${mode === 'BLANK' ? 'text-emerald-900' : 'text-slate-700'}`}>Start from Blank Page</span>
-                         </div>
-                         {mode === 'BLANK' && <Check className="w-5 h-5 text-emerald-600" />}
-                    </button>
+                    <div className="grid grid-cols-2 gap-4 mt-4">
+                        <button
+                            onClick={() => setMode('IMPORT')}
+                            className={`p-4 rounded-3xl border-2 flex items-center justify-center gap-3 text-center hover:shadow-md transition-all ${mode === 'IMPORT' ? 'border-blue-500 bg-blue-50' : 'border-slate-100 bg-white hover:border-blue-200'}`}
+                        >
+                            <div className={`p-2 rounded-xl ${mode === 'IMPORT' ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-600'}`}>
+                                <Clipboard className="w-4 h-4" />
+                            </div>
+                            <span className={`font-bold text-sm ${mode === 'IMPORT' ? 'text-blue-900' : 'text-slate-700'}`}>
+                                Import / Paste Text
+                            </span>
+                        </button>
+
+                        <button
+                            onClick={() => setMode('BLANK')}
+                            className={`p-4 rounded-3xl border-2 flex items-center justify-center gap-3 text-center hover:shadow-md transition-all ${mode === 'BLANK' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-100 bg-white hover:border-emerald-200'}`}
+                        >
+                            <div className={`p-2 rounded-xl ${mode === 'BLANK' ? 'bg-emerald-500 text-white' : 'bg-emerald-100 text-emerald-600'}`}>
+                                <FilePlus className="w-4 h-4" />
+                            </div>
+                            <span className={`font-bold text-sm ${mode === 'BLANK' ? 'text-emerald-900' : 'text-slate-700'}`}>
+                                Blank Page
+                            </span>
+                        </button>
+                    </div>
                 </div>
 
-                {mode !== 'BLANK' && (
+                {mode !== 'BLANK' && mode !== 'IMPORT' && (
                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                         <label className="flex items-center gap-3 cursor-pointer">
                             <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-colors ${includeAddOn ? 'bg-pink-500 border-pink-500' : 'bg-white border-slate-300'}`}>
@@ -398,7 +419,10 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
                                 <input type="checkbox" className="hidden" checked={includeAddOn} onChange={(e) => setIncludeAddOn(e.target.checked)} />
                             </div>
                             <span className="text-sm font-bold text-slate-700">
-                                {mode === 'CONCEPT' ? 'Generate 3 Practice Problems?' : 'Explain Concepts & Analogies?'}
+                                {mode === 'CONCEPT' 
+                                  ? (domain === NoteDomain.STEM ? 'Generate 3 Practice Problems?' : 'Add Review Questions?') 
+                                  : (domain === NoteDomain.STEM ? 'Explain Concepts & Analogies?' : 'Add Detailed Commentary?')
+                                }
                             </span>
                         </label>
                     </div>
@@ -428,48 +452,73 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
          {step === 2 && mode !== 'BLANK' && (
              <div className="animate-fade-in space-y-6 mt-4">
                  <div className="mb-4">
-                    <h3 className="text-2xl font-extrabold text-slate-900 tracking-tight">Upload Content</h3>
+                    <h3 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+                        {mode === 'IMPORT' ? 'Paste Content' : 'Upload Content'}
+                    </h3>
                     <p className="text-sm text-slate-500 font-medium">
-                        {mode === 'CONCEPT' ? 'Upload slides, blackboard, or definitions.' : 'Upload homework questions or equations.'}
+                        {mode === 'IMPORT' 
+                         ? 'Paste your pre-written notes here. The AI will format them but preserve your original text.' 
+                         : (domain === NoteDomain.STEM 
+                            ? (mode === 'CONCEPT' ? 'Upload slides, blackboard, or definitions.' : 'Upload homework questions or equations.')
+                            : 'Upload historical texts, slides with dates, or reading materials.'
+                         )
+                        }
                     </p>
                 </div>
 
-                {/* Upload */}
-                <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Image Source</label>
-                    <div 
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        className={`border-2 border-dashed rounded-3xl p-6 text-center transition cursor-pointer relative group flex flex-col items-center justify-center min-h-[160px] ${isDragging ? 'border-pink-500 bg-pink-50 scale-[1.02]' : 'border-slate-200 hover:bg-slate-50'}`}
-                    >
-                        <input 
-                            type="file" 
-                            accept="image/*"
-                            onChange={(e) => setFile(e.target.files?.[0] || null)}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                {/* Content Input Area */}
+                {mode === 'IMPORT' ? (
+                    <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Raw Text Content</label>
+                        <textarea 
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            className="w-full bg-slate-50 border-2 border-slate-200 rounded-3xl p-6 h-64 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none resize-none font-mono text-slate-700 leading-relaxed"
+                            placeholder="Paste your notes from Gemini Pro, ChatGPT, or your own drafts here..."
                         />
-                        <div className="flex flex-col items-center pointer-events-none">
-                            <div className={`p-3 rounded-full mb-2 transition-transform shadow-sm ${isDragging ? 'bg-pink-600 text-white scale-110' : 'bg-pink-50 text-pink-600 group-hover:scale-110'}`}>
-                                {isDragging ? <UploadCloud className="w-6 h-6" /> : <Camera className="w-5 h-5" />}
-                            </div>
-                            <span className={`text-sm font-bold ${isDragging ? 'text-pink-700' : 'text-slate-600'}`}>
-                                {file ? file.name : (isDragging ? "Drop Image Here" : "Drag from Photos, Paste, or Click")}
-                            </span>
+                         <div className="flex items-center gap-2 mt-2 text-xs text-slate-400 font-bold px-2">
+                            <Scissors className="w-3.5 h-3.5" />
+                            <span>AI will format this text but keep your original wording.</span>
                         </div>
                     </div>
-                </div>
+                ) : (
+                    <>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Image Source</label>
+                            <div 
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                                className={`border-2 border-dashed rounded-3xl p-6 text-center transition cursor-pointer relative group flex flex-col items-center justify-center min-h-[160px] ${isDragging ? 'border-pink-500 bg-pink-50 scale-[1.02]' : 'border-slate-200 hover:bg-slate-50'}`}
+                            >
+                                <input 
+                                    type="file" 
+                                    accept="image/*"
+                                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                />
+                                <div className="flex flex-col items-center pointer-events-none">
+                                    <div className={`p-3 rounded-full mb-2 transition-transform shadow-sm ${isDragging ? 'bg-pink-600 text-white scale-110' : 'bg-pink-50 text-pink-600 group-hover:scale-110'}`}>
+                                        {isDragging ? <UploadCloud className="w-6 h-6" /> : <Camera className="w-5 h-5" />}
+                                    </div>
+                                    <span className={`text-sm font-bold ${isDragging ? 'text-pink-700' : 'text-slate-600'}`}>
+                                        {file ? file.name : (isDragging ? "Drop Image Here" : "Drag from Photos, Paste, or Click")}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
 
-                {/* Text Input */}
-                <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Extra Notes</label>
-                    <textarea 
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        className="w-full bg-slate-100 border-none rounded-3xl p-5 h-24 text-sm focus:ring-2 focus:ring-pink-500/20 focus:bg-white transition-all outline-none resize-none font-medium text-slate-700"
-                        placeholder="Add context or specific instructions..."
-                    />
-                </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Extra Notes</label>
+                            <textarea 
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                className="w-full bg-slate-100 border-none rounded-3xl p-5 h-24 text-sm focus:ring-2 focus:ring-pink-500/20 focus:bg-white transition-all outline-none resize-none font-medium text-slate-700"
+                                placeholder="Add context or specific instructions..."
+                            />
+                        </div>
+                    </>
+                )}
 
                 <div className="flex gap-3 pt-2">
                     <button 
@@ -480,11 +529,11 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({
                     </button>
                     <button 
                         onClick={handleSubmit}
-                        disabled={!file && !input}
+                        disabled={mode === 'IMPORT' ? !input : (!file && !input)}
                         className="flex-[2] bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white py-4 rounded-full font-bold shadow-xl shadow-slate-200 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                     >
                         <Check className="w-5 h-5" />
-                        <span>Process</span>
+                        <span>{mode === 'IMPORT' ? 'Format & Save' : 'Process'}</span>
                     </button>
                 </div>
              </div>

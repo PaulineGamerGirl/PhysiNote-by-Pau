@@ -7,12 +7,14 @@ import {
   Sigma, 
   MessageSquare,
   AlignJustify,
-  Loader2
+  Loader2,
+  GripVertical
 } from 'lucide-react';
 import MarkdownRenderer from '../MarkdownRenderer'; // Keep for Problems
 import InteractiveEditor from '../Editor/InteractiveEditor';
 import { Note, Subject, Chapter } from '../../types';
 import * as GeminiService from '../../services/geminiService';
+import { parseMarkdownToHtml } from '../../utils/helpers';
 
 interface NoteViewProps {
   // We now accept the full data set for continuous scrolling
@@ -29,6 +31,7 @@ interface NoteViewProps {
   setIsChatOpen: (isOpen: boolean) => void;
   isChatOpen: boolean;
   onUpdateNote?: (noteId: string, content: any) => void; 
+  onReorderNotes?: (chapterId: string, fromIndex: number, toIndex: number) => void; // New Prop
 }
 
 // --- LAZY NOTE BLOCK COMPONENT ---
@@ -41,7 +44,12 @@ const LazyNoteBlock: React.FC<{
     handleAiTransform: (s: string, i: string) => Promise<string>;
     shouldShowSubtopic: boolean;
     isActive: boolean;
-}> = ({ note, showLines, onUpdateNote, onDeleteNote, handleAiTransform, shouldShowSubtopic, isActive }) => {
+    // DnD Props
+    draggable: boolean;
+    onDragStart: (e: React.DragEvent) => void;
+    onDragOver: (e: React.DragEvent) => void;
+    onDrop: (e: React.DragEvent) => void;
+}> = ({ note, showLines, onUpdateNote, onDeleteNote, handleAiTransform, shouldShowSubtopic, isActive, draggable, onDragStart, onDragOver, onDrop }) => {
     
     const [isVisible, setIsVisible] = useState(false);
     const [hasLoaded, setHasLoaded] = useState(false); // Once loaded, stay loaded to prevent flicker
@@ -69,21 +77,21 @@ const LazyNoteBlock: React.FC<{
         return () => observer.disconnect();
     }, [hasLoaded]);
 
-    // Migration Logic (Same as before)
+    // Migration Logic (UPDATED WITH PARSER)
     useEffect(() => {
         if (note.content.editorContent) {
             setEditorInitialContent(note.content.editorContent);
         } else {
             let migrationHtml = '';
+            // Parse conceptual logic with helper
             if (note.content.conceptualLogic && note.content.conceptualLogic !== 'N/A') {
-                migrationHtml += `<h1>Concept</h1><p>${note.content.conceptualLogic}</p>`;
+                const parsedConcept = parseMarkdownToHtml(note.content.conceptualLogic);
+                migrationHtml += `<h3>Concept</h3>${parsedConcept}`;
             }
+            // Parse Extended Explanation with helper
             if (note.content.extendedExplanation) {
-                 const paragraphs = note.content.extendedExplanation.split('\n\n');
-                 migrationHtml += `<h1>Notes</h1>`;
-                 paragraphs.forEach(p => {
-                     migrationHtml += `<p>${p}</p>`;
-                 });
+                 const parsedNotes = parseMarkdownToHtml(note.content.extendedExplanation);
+                 migrationHtml += `<h3>Notes</h3>${parsedNotes}`;
             }
             const userImages = note.images || [];
             if (userImages.length > 0) {
@@ -115,7 +123,11 @@ const LazyNoteBlock: React.FC<{
         <div 
             ref={containerRef}
             id={`note-${note.id}`}
-            className={`relative w-full max-w-[210mm] transition-all duration-500 mb-12 ${showLines ? 'lined-paper' : 'bg-white shadow-xl rounded-sm'} ${isActive ? 'ring-2 ring-blue-500 ring-offset-4' : ''}`}
+            draggable={draggable}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            className={`relative w-full max-w-[210mm] transition-all duration-500 mb-12 group ${showLines ? 'lined-paper' : 'bg-white shadow-xl rounded-sm'} ${isActive ? 'ring-2 ring-blue-500 ring-offset-4' : ''}`}
             style={{
                 minHeight: '297mm', // Maintain A4 height even when empty/lazy
                 backgroundColor: showLines ? 'transparent' : 'white',
@@ -135,13 +147,16 @@ const LazyNoteBlock: React.FC<{
         >
             <div className="px-[20mm] pt-[38px] pb-[32px] relative z-10">
                 
-                {/* Header Actions */}
-                <div className="absolute top-4 right-4 print:hidden opacity-0 group-hover:opacity-100 transition-opacity">
+                {/* Drag Handle & Delete */}
+                <div className="absolute top-4 -right-12 print:hidden opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-2">
+                     <div className="p-2 bg-slate-100 text-slate-400 rounded-lg cursor-grab active:cursor-grabbing hover:bg-slate-200">
+                         <GripVertical className="w-5 h-5" />
+                     </div>
                      <button 
                         onClick={(e) => onDeleteNote(note.id, e)}
-                        className="p-2 bg-rose-50 text-rose-600 rounded-full hover:bg-rose-100 transition"
+                        className="p-2 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 transition"
                      >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-5 h-5" />
                      </button>
                 </div>
 
@@ -244,9 +259,11 @@ const NoteView: React.FC<NoteViewProps> = ({
   handleGeneratePractice,
   setIsChatOpen,
   isChatOpen,
-  onUpdateNote
+  onUpdateNote,
+  onReorderNotes
 }) => {
   const [showLines, setShowLines] = useState(true);
+  const [draggedNoteIndex, setDraggedNoteIndex] = useState<{ chapterId: string, index: number } | null>(null);
 
   // --- AUTO SCROLL LOGIC ---
   useEffect(() => {
@@ -267,6 +284,27 @@ const NoteView: React.FC<NoteViewProps> = ({
 
   const handleAiTransform = async (selection: string, instruction: string): Promise<string> => {
       return await GeminiService.transformSelectedText(selection, instruction);
+  };
+
+  // --- DND HANDLERS ---
+  const handleDragStart = (e: React.DragEvent, chapterId: string, index: number) => {
+      setDraggedNoteIndex({ chapterId, index });
+      e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault(); // Necessary to allow dropping
+  };
+
+  const handleDrop = (e: React.DragEvent, chapterId: string, dropIndex: number) => {
+      e.preventDefault();
+      if (!draggedNoteIndex || !onReorderNotes) return;
+      if (draggedNoteIndex.chapterId !== chapterId) return; // Only allow reorder within same chapter for now
+
+      if (draggedNoteIndex.index !== dropIndex) {
+          onReorderNotes(chapterId, draggedNoteIndex.index, dropIndex);
+      }
+      setDraggedNoteIndex(null);
   };
 
   return (
@@ -303,7 +341,11 @@ const NoteView: React.FC<NoteViewProps> = ({
       {/* --- CONTINUOUS DOCUMENT FLOW --- */}
       <div className="space-y-16 w-full flex flex-col items-center">
           {chapters.map(chapter => {
-              const chapterNotes = notes.filter(n => n.chapterId === chapter.id);
+              // Sort by Order field if present, otherwise by creation time (legacy fallback)
+              const chapterNotes = notes
+                .filter(n => n.chapterId === chapter.id)
+                .sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt));
+
               if (chapterNotes.length === 0) return null;
 
               return (
@@ -317,7 +359,7 @@ const NoteView: React.FC<NoteViewProps> = ({
                       </div>
 
                       {/* Notes Loop */}
-                      {chapterNotes.map(note => (
+                      {chapterNotes.map((note, index) => (
                           <LazyNoteBlock
                             key={note.id}
                             note={note}
@@ -327,6 +369,11 @@ const NoteView: React.FC<NoteViewProps> = ({
                             handleAiTransform={handleAiTransform}
                             shouldShowSubtopic={note.content.subtopic && !['Manual Entry', 'New Topic', 'Practice'].includes(note.content.subtopic)}
                             isActive={activeId === note.id}
+                            
+                            draggable={true}
+                            onDragStart={(e) => handleDragStart(e, chapter.id, index)}
+                            onDragOver={handleDragOver}
+                            onDrop={(e) => handleDrop(e, chapter.id, index)}
                           />
                       ))}
                   </div>
@@ -363,6 +410,9 @@ const NoteView: React.FC<NoteViewProps> = ({
         .notebook-text li {
             line-height: 32px !important;
             margin-bottom: 0px !important; /* Force single spacing */
+        }
+        .lined-paper {
+            cursor: default; /* Fallback */
         }
       `}</style>
     </div>

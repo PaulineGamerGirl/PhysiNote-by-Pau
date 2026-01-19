@@ -1,8 +1,14 @@
 
+
 export enum NoteType {
   CONCEPT = 'CONCEPT',
   EXAMPLE = 'EXAMPLE',
   MIXED = 'MIXED'
+}
+
+export enum NoteDomain {
+  STEM = 'STEM',        // Physics, Math, Chemistry (Formula & Problem heavy)
+  HUMANITIES = 'HUMANITIES' // History, Ethics, Literature (Narrative & Context heavy)
 }
 
 export enum DetailLevel {
@@ -37,7 +43,7 @@ export interface NoteContent {
   title: string;
   subtopic: string;
   analogy: string; // Real world analogy
-  conceptualLogic: string; // The "Why"
+  conceptualLogic: string; // The "Why" or "Historical Context"
   
   // Content for Condensed Mode (Deprecated in favor of Summary Notebooks, but kept for type safety)
   condensedReview: string[]; 
@@ -61,7 +67,9 @@ export interface Note {
   subjectId: string;
   chapterId: string;
   createdAt: number;
+  order?: number; // For manual reordering
   type: NoteType;
+  domain?: NoteDomain; // New field to track if this is Math or History
   content: NoteContent;
   images: string[]; // Array of Base64 strings (User uploads)
 }
@@ -111,7 +119,8 @@ export interface QueueItem {
   forceNewNote?: boolean;    // If true, skip AI continuation check and create new
   customSubtopic?: string;   // User-defined title for the new note
   
-  mode: 'CONCEPT' | 'PROBLEM';
+  mode: 'CONCEPT' | 'PROBLEM' | 'IMPORT'; // Added IMPORT
+  domain: NoteDomain;        // 'STEM' or 'HUMANITIES'
   includeAddOn: boolean; // Concept: Generate Practice? Problem: Generate Concepts?
   
   // Summarization Task Fields

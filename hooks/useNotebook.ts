@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Note, Subject, Chapter, Problem, NoteType } from '../types';
 import * as StorageService from '../services/storageService';
 
@@ -47,18 +47,22 @@ export const useNotebook = () => {
 
     setSubjects(migratedSubjects);
     setChapters(data.chapters);
-    setNotes(data.notes);
     
-    // We do NOT auto-select a subject anymore to show the Gallery first
+    // Migration: Add order to notes if missing
+    const migratedNotes = data.notes.map((n, idx) => ({
+        ...n,
+        order: n.order !== undefined ? n.order : n.createdAt
+    }));
+    setNotes(migratedNotes);
+    
     setSelectedSubject(null);
     setSelectedChapter(null);
 
-    // If we created new summary subjects, save immediately
     if (changed) {
         StorageService.saveData({ 
             subjects: migratedSubjects, 
             chapters: data.chapters, 
-            notes: data.notes 
+            notes: migratedNotes 
         });
     }
   }, []);
@@ -71,7 +75,6 @@ export const useNotebook = () => {
   const addSubject = (title: string, term: string, year: string, initialStructure: { title: string, subtopics: string[] }[]) => {
     const newSubjectId = Date.now().toString();
     
-    // Random gradients for default covers
     const gradients = [
         'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
         'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
@@ -80,7 +83,6 @@ export const useNotebook = () => {
     ];
     const randomCover = gradients[Math.floor(Math.random() * gradients.length)];
 
-    // 1. Create Normal Subject
     const newSubject: Subject = {
       id: newSubjectId,
       title,
@@ -90,14 +92,13 @@ export const useNotebook = () => {
       isSummary: false
     };
 
-    // 2. Create Summary Subject (Linked)
     const summarySubjectId = newSubjectId + '_summary';
     const summarySubject: Subject = {
         id: summarySubjectId,
-        title: title, // Exact same title
+        title: title, 
         term,
         year,
-        coverImage: randomCover, // Share cover initially
+        coverImage: randomCover, 
         isSummary: true,
         originalSubjectId: newSubjectId
     };
@@ -105,7 +106,6 @@ export const useNotebook = () => {
     setSubjects([...subjects, newSubject, summarySubject]);
     setSelectedSubject(newSubject);
     
-    // Create initial chapters for NORMAL subject only (Summary stays empty until generated)
     let newChapters: Chapter[] = [];
     let newNotes: Note[] = [];
 
@@ -119,18 +119,18 @@ export const useNotebook = () => {
                 summaryTable: ''
             });
 
-            // Create blank notes for subtopics
             module.subtopics.forEach((sub, sIdx) => {
                 newNotes.push({
                     id: `${chapId}_n${sIdx}_${Date.now()}`,
                     subjectId: newSubjectId,
                     chapterId: chapId,
-                    createdAt: Date.now() + sIdx, // stagger slightly
+                    createdAt: Date.now() + sIdx,
+                    order: sIdx, // Initialize Order
                     type: NoteType.CONCEPT,
                     images: [],
                     content: {
                         title: sub,
-                        subtopic: module.title, // Or 'Intro'
+                        subtopic: module.title, 
                         analogy: 'N/A',
                         conceptualLogic: 'Placeholder',
                         condensedReview: [],
@@ -161,7 +161,6 @@ export const useNotebook = () => {
   };
 
   const updateSubjectCover = (id: string, imageUrl: string) => {
-      // Find the pair ID to sync the cover
       let pairId: string | undefined;
       const target = subjects.find(s => s.id === id);
       
@@ -206,7 +205,13 @@ export const useNotebook = () => {
   };
 
   const addNote = (note: Note) => {
-      setNotes(prev => [...prev, note]);
+      setNotes(prev => {
+          // Set order to be last in current chapter
+          const chapterNotes = prev.filter(n => n.chapterId === note.chapterId);
+          const maxOrder = chapterNotes.length > 0 ? Math.max(...chapterNotes.map(n => n.order || 0)) : 0;
+          
+          return [...prev, { ...note, order: maxOrder + 1 }];
+      });
   };
 
   const appendProblemsToNote = (noteId: string, problems: Problem[]) => {
@@ -222,7 +227,6 @@ export const useNotebook = () => {
           }
           return n;
       }));
-      // Update selected note if it's the target
       if (selectedNote?.id === noteId) {
           setSelectedNote(prev => {
               if (prev) {
@@ -258,29 +262,20 @@ export const useNotebook = () => {
   };
 
   const bulkDeleteSubjects = (ids: string[]) => {
-    if (window.confirm(`Delete ${ids.length} notebooks? This will delete both the Notebook and the Summary Deck.`)) {
-        
+    if (window.confirm(`Delete ${ids.length} notebooks?`)) {
         const allIdsToDelete = new Set<string>();
-        
-        // Robust ID resolution logic that doesn't rely on state searching
         ids.forEach(id => {
             allIdsToDelete.add(id);
             if (id.endsWith('_summary')) {
-                // If we selected a summary, delete the original too
                 allIdsToDelete.add(id.replace('_summary', ''));
             } else {
-                // If we selected a normal, delete the summary too
                 allIdsToDelete.add(id + '_summary');
             }
         });
-
         const finalIds = Array.from(allIdsToDelete);
-
-        // Update all states
         setSubjects(prev => prev.filter(s => !finalIds.includes(s.id)));
         setChapters(prev => prev.filter(c => !finalIds.includes(c.subjectId)));
         setNotes(prev => prev.filter(n => !finalIds.includes(n.subjectId)));
-
         if (selectedSubject && finalIds.includes(selectedSubject.id)) {
             setSelectedSubject(null);
             setSelectedChapter(null);
@@ -290,10 +285,9 @@ export const useNotebook = () => {
   };
 
   const bulkDeleteChapters = (ids: string[]) => {
-    if (window.confirm(`Delete ${ids.length} chapters? This will delete ALL notes inside them.`)) {
+    if (window.confirm(`Delete ${ids.length} chapters?`)) {
         setChapters(prev => prev.filter(c => !ids.includes(c.id)));
         setNotes(prev => prev.filter(n => !ids.includes(n.chapterId)));
-
         if (selectedChapter && ids.includes(selectedChapter.id)) {
             setSelectedChapter(null);
             setSelectedNote(null);
@@ -301,19 +295,13 @@ export const useNotebook = () => {
     }
   };
 
-  // Now handles both partial Note updates OR just NoteContent updates
   const updateNoteContent = (noteId: string, payload: any) => {
-      // Heuristic: If payload has 'content' key, treat as partial Note, otherwise treat as NoteContent
       const isPartialNote = 'content' in payload || 'images' in payload;
-      
-      // If it's a simple title update, we might receive { title: "New Title" } 
-      // We need to map that to content.title if it's not wrapped
       let finalPayload = payload;
       let isTitleUpdate = false;
 
       if (!isPartialNote && payload.title && Object.keys(payload).length === 1) {
           isTitleUpdate = true;
-          // Update the array state
           setNotes(prev => prev.map(n => {
               if (n.id === noteId) {
                   return { ...n, content: { ...n.content, title: payload.title } };
@@ -321,20 +309,18 @@ export const useNotebook = () => {
               return n;
           }));
       } else {
-          // Standard Update
           setNotes(prev => prev.map(n => {
               if (n.id === noteId) {
                   if (isPartialNote) {
-                      return { ...n, ...finalPayload }; // Merge properties like images and content
+                      return { ...n, ...finalPayload }; 
                   } else {
-                      return { ...n, content: finalPayload }; // Legacy behavior
+                      return { ...n, content: finalPayload }; 
                   }
               }
               return n;
           }));
       }
 
-      // Update selected note logic if it matches
       if (selectedNote?.id === noteId) {
           setSelectedNote(prev => {
               if (prev) {
@@ -354,6 +340,30 @@ export const useNotebook = () => {
 
   const updateChapterSummary = (chapterId: string, summary: string) => {
       setChapters(prev => prev.map(c => c.id === chapterId ? { ...c, summaryTable: summary } : c));
+  };
+
+  // --- NEW: Reorder Notes Function ---
+  const reorderNotes = (chapterId: string, fromIndex: number, toIndex: number) => {
+      setNotes(prevNotes => {
+          // 1. Get notes for this chapter sorted by current order
+          const chapterNotes = prevNotes
+              .filter(n => n.chapterId === chapterId)
+              .sort((a, b) => (a.order || 0) - (b.order || 0));
+          
+          const otherNotes = prevNotes.filter(n => n.chapterId !== chapterId);
+
+          // 2. Perform the move
+          const [movedNote] = chapterNotes.splice(fromIndex, 1);
+          chapterNotes.splice(toIndex, 0, movedNote);
+
+          // 3. Reassign 'order' property
+          const updatedChapterNotes = chapterNotes.map((note, index) => ({
+              ...note,
+              order: index
+          }));
+
+          return [...otherNotes, ...updatedChapterNotes];
+      });
   };
 
   const exportData = () => {
@@ -417,6 +427,7 @@ export const useNotebook = () => {
     editSubject, editChapter, updateSubjectCover,
     deleteNote, deleteChapter, bulkDeleteSubjects, bulkDeleteChapters,
     updateNoteContent, updateChapterSummary,
+    reorderNotes, // Export new function
     viewMode, setViewMode,
     exportData, importData
   };

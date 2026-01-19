@@ -1,6 +1,7 @@
 
+
 import React, { useState } from 'react';
-import { NoteType, DetailLevel, QueueItem, Note } from './types';
+import { NoteType, DetailLevel, QueueItem, Note, NoteDomain } from './types';
 
 // Hooks
 import { useNotebook } from './hooks/useNotebook';
@@ -122,6 +123,7 @@ const App: React.FC = () => {
         customSubtopic: payload.customSubtopic,
 
         mode: payload.mode,
+        domain: payload.domain || NoteDomain.STEM,
         includeAddOn: payload.includeAddOn,
         createdAt: payload.createdAt,
         taskType: 'CREATE'
@@ -159,6 +161,7 @@ const App: React.FC = () => {
                    subjectId: summarySubject.id,
                    chapterId: summaryChapter.id,
                    mode: 'CONCEPT',
+                   domain: note.domain || NoteDomain.STEM,
                    includeAddOn: false,
                    createdAt: Date.now(),
                    taskType: 'SUMMARIZE',
@@ -275,6 +278,7 @@ const App: React.FC = () => {
                     setIsChatOpen={setIsChatOpen}
                     isChatOpen={isChatOpen}
                     onUpdateNote={notebook.updateNoteContent}
+                    onReorderNotes={notebook.reorderNotes}
                 />
             )
           )}
