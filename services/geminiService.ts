@@ -2,18 +2,15 @@
 import { GoogleGenAI, Schema, Type, FunctionDeclaration } from "@google/genai";
 import { NoteContent, NoteType, PracticeProblemSet, DetailLevel, Problem, NoteDomain } from "../types";
 
-// Safety check for process.env to prevent crashes in non-Node environments
-// We check GEMINI_API_KEY first as requested, then fall back to API_KEY
-const apiKey = (typeof process !== 'undefined' && process.env) 
-  ? (process.env.GEMINI_API_KEY || process.env.API_KEY) 
-  : undefined;
+// Hardcoded API Key as requested
+const apiKey = "AIzaSyAgPT7_o499f5btwICHYuBSW3Q_3AKeccs";
 
-// Initialize with a fallback to prevent immediate crash on module load; specific errors are thrown during function calls.
-const ai = new GoogleGenAI({ apiKey: apiKey || "MISSING_KEY" });
+// Initialize with the hardcoded key
+const ai = new GoogleGenAI({ apiKey: apiKey });
 
 const checkApiKey = () => {
   if (!apiKey) {
-    throw new Error("API Key is missing. Please add 'GEMINI_API_KEY' to your environment variables.");
+    throw new Error("API Key is missing.");
   }
 };
 
